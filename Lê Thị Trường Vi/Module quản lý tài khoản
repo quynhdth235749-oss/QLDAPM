@@ -1,0 +1,150 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../cau-hinh/ketNoiCSDL');
+
+// ============================================================
+// 1. CÁC HÀM XỬ LÝ LOGIC TÀI KHOẢN (CONTROLLER)
+// ============================================================
+
+// 1.1 Lấy thông tin cá nhân của người dùng
+const layThongTinCaNhan = async (req, res) => {
+    try {
+        const { ma_nguoi_dung } = req.params;
+
+        const [nguoiDung] = await db.execute(
+            "SELECT ma_nguoi_dung, ho_ten, email, so_dien_thoai, dia_chi, vai_tro, ngay_tao FROM nguoi_dung WHERE ma_nguoi_dung = ?",
+            [ma_nguoi_dung]
+        );
+
+        if (nguoiDung.length === 0) {
+            return res.status(404).json({ thanh_cong: false, thong_bao: "Không tìm thấy người dùng" });
+        }
+
+        res.status(200).json({ thanh_cong: true, du_lieu: nguoiDung[0] });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi lấy thông tin cá nhân", loi: loi.message });
+    }
+};
+
+// 1.2 Cập nhật hồ sơ thông tin cá nhân (Họ tên, SĐT, Địa chỉ)
+const capNhatHoSo = async (req, res) => {
+    try {
+        const { ma_nguoi_dung, ho_ten, so_dien_thoai, dia_chi } = req.body;
+
+        const [ketQua] = await db.execute(
+            "UPDATE nguoi_dung SET ho_ten = ?, so_dien_thoai = ?, dia_chi = ? WHERE ma_nguoi_dung = ?",
+            [ho_ten, so_dien_thoai, dia_chi, ma_nguoi_dung]
+        );
+
+        if (ketQua.affectedRows === 0) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Cập nhật thất bại hoặc tài khoản không tồn tại" });
+        }
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Cập nhật thông tin cá nhân thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi cập nhật hồ sơ", loi: loi.message });
+    }
+};
+
+// 1.3 Đổi mật khẩu
+const doiMatKhau = async (req, res) => {
+    try {
+        const { ma_nguoi_dung, mat_khau_cu, mat_khau_moi } = req.body;
+
+        const [nguoiDung] = await db.execute(
+            "SELECT mat_khau FROM nguoi_dung WHERE ma_nguoi_dung = ?",
+            [ma_nguoi_dung]
+        );
+
+        if (nguoiDung.length === 0) {
+            return res.status(404).json({ thanh_cong: false, thong_bao: "Tài khoản không tồn tại" });
+        }
+
+        if (nguoiDung[0].mat_khau !== mat_khau_cu) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Mật khẩu cũ không chính xác" });
+        }
+
+        await db.execute(
+            "UPDATE nguoi_dung SET mat_khau = ? WHERE ma_nguoi_dung = ?",
+            [mat_khau_moi, ma_nguoi_dung]
+        );
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Đổi mật khẩu thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi đổi mật khẩu", loi: loi.message });
+    }
+};
+
+// 1.4 Lấy danh sách tất cả người dùng (Dành riêng cho Admin)
+const layDanhSachNguoiDung = async (req, res) => {
+    try {
+        const [danhSach] = await db.execute(
+            "SELECT ma_nguoi_dung, ho_ten, email, so_dien_thoai, dia_chi, vai_tro, ngay_tao FROM nguoi_dung ORDER BY ngay_tao DESC"
+        );
+
+        res.status(200).json({ thanh_cong: true, du_lieu: danhSach });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi lấy danh sách người dùng", loi: loi.message });
+    }
+};
+
+// 1.5 Thay đổi vai trò người dùng (user <-> admin)
+const thayDoiVaiTro = async (req, res) => {
+    try {
+        const { ma_nguoi_dung, vai_tro_moi } = req.body;
+
+        if (!['user', 'admin'].includes(vai_tro_moi)) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Vai trò không hợp lệ" });
+        }
+
+        const [ketQua] = await db.execute(
+            "UPDATE nguoi_dung SET vai_tro = ? WHERE ma_nguoi_dung = ?",
+            [vai_tro_moi, ma_nguoi_dung]
+        );
+
+        if (ketQua.affectedRows === 0) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Không tìm thấy người dùng" });
+        }
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Cập nhật vai trò thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi thay đổi vai trò", loi: loi.message });
+    }
+};
+
+// 1.6 Xóa tài khoản người dùng (Dành cho Admin)
+const xoaNguoiDung = async (req, res) => {
+    try {
+        const { ma_nguoi_dung } = req.params;
+
+        const [ketQua] = await db.execute(
+            "DELETE FROM nguoi_dung WHERE ma_nguoi_dung = ?",
+            [ma_nguoi_dung]
+        );
+
+        if (ketQua.affectedRows === 0) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Không tìm thấy tài khoản cần xóa" });
+        }
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Xóa tài khoản thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi xóa người dùng", loi: loi.message });
+    }
+};
+
+// ============================================================
+// 2. CẤU HÌNH ĐƯỜNG DẪN (ROUTER API)
+// ============================================================
+
+// Route cho Người dùng (User)
+router.get('/thong-tin/:ma_nguoi_dung', layThongTinCaNhan);
+router.put('/cap-nhat-ho-so', capNhatHoSo);
+router.put('/doi-mat-khau', doiMatKhau);
+
+// Route cho Quản trị viên (Admin)
+router.get('/danh-sach', layDanhSachNguoiDung);
+router.put('/doi-vai-tro', thayDoiVaiTro);
+router.delete('/xoa/:ma_nguoi_dung', xoaNguoiDung);
+
+// Export router ra ngoài để server.js / app.js sử dụng
+module.exports = router;
