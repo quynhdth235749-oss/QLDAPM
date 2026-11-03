@@ -1,0 +1,163 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../cau-hinh/ketNoiCSDL');
+
+// ============================================================
+// 1. CÁC HÀM XỬ LÝ QUẢN TRỊ VIÊN (CONTROLLER)
+// ============================================================
+
+// 1.1 Thống kê tổng quan hệ thống (Bảng điều khiển - Dashboard)
+const layThongKeTongQuan = async (req, res) => {
+    try {
+        const [[{ tong_nguoi_dung }]] = await db.execute("SELECT COUNT(*) AS tong_nguoi_dung FROM nguoi_dung");
+        const [[{ tong_san_pham }]] = await db.execute("SELECT COUNT(*) AS tong_san_pham FROM san_pham");
+        const [[{ tong_giao_dich }]] = await db.execute("SELECT COUNT(*) AS tong_giao_dich FROM giao_dich WHERE trang_thai = 'hoan_thanh'");
+        const [[{ tong_danh_muc }]] = await db.execute("SELECT COUNT(*) AS tong_danh_muc FROM danh_muc");
+
+        res.status(200).json({
+            thanh_cong: true,
+            du_lieu: {
+                tong_nguoi_dung,
+                tong_san_pham,
+                tong_giao_dich,
+                tong_danh_muc
+            }
+        });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi lấy thống kê tổng quan", loi: loi.message });
+    }
+};
+
+// 1.2 Quản lý Sản phẩm: Lấy tất cả sản phẩm (kèm thông tin người bán & danh mục)
+const layDanhSachSanPham = async (req, res) => {
+    try {
+        const [danhSach] = await db.execute(
+            `SELECT sp.*, dm.ten_danh_muc, nd.ho_ten AS ten_nguoi_ban, nd.email AS email_nguoi_ban
+             FROM san_pham sp
+             JOIN danh_muc dm ON sp.ma_danh_muc = dm.ma_danh_muc
+             JOIN nguoi_dung nd ON sp.ma_nguoi_dung = nd.ma_nguoi_dung
+             ORDER BY sp.ngay_tao DESC`
+        );
+
+        res.status(200).json({ thanh_cong: true, du_lieu: danhSach });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi lấy danh sách sản phẩm", loi: loi.message });
+    }
+};
+
+// 1.3 Cập nhật trạng thái sản phẩm (Ví dụ: 'con_hang', 'da_ban', hoặc gỡ bài)
+const capNhatTrangThaiSanPham = async (req, res) => {
+    try {
+        const { ma_san_pham, trang_thai } = req.body; // trang_thai: 'con_hang', 'da_dat', 'da_ban'
+
+        const [ketQua] = await db.execute(
+            "UPDATE san_pham SET trang_thai = ? WHERE ma_san_pham = ?",
+            [trang_thai, ma_san_pham]
+        );
+
+        if (ketQua.affectedRows === 0) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Không tìm thấy sản phẩm" });
+        }
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Cập nhật trạng thái sản phẩm thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi cập nhật trạng thái sản phẩm", loi: loi.message });
+    }
+};
+
+// 1.4 Xóa sản phẩm vi phạm (Admin)
+const xoaSanPham = async (req, res) => {
+    try {
+        const { ma_san_pham } = req.params;
+
+        const [ketQua] = await db.execute(
+            "DELETE FROM san_pham WHERE ma_san_pham = ?",
+            [ma_san_pham]
+        );
+
+        if (ketQua.affectedRows === 0) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Không tìm thấy sản phẩm cần xóa" });
+        }
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Đã xóa sản phẩm vi phạm thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi xóa sản phẩm", loi: loi.message });
+    }
+};
+
+// 1.5 Quản lý Danh mục: Thêm danh mục mới
+const themDanhMuc = async (req, res) => {
+    try {
+        const { ten_danh_muc, mo_ta } = req.body;
+
+        if (!ten_danh_muc) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Tên danh mục không được để trống" });
+        }
+
+        await db.execute(
+            "INSERT INTO danh_muc (ten_danh_muc, mo_ta) VALUES (?, ?)",
+            [ten_danh_muc, mo_ta || '']
+        );
+
+        res.status(201).json({ thanh_cong: true, thong_bao: "Thêm danh mục thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi thêm danh mục", loi: loi.message });
+    }
+};
+
+// 1.6 Quản lý Danh mục: Xóa danh mục
+const xoaDanhMuc = async (req, res) => {
+    try {
+        const { ma_danh_muc } = req.params;
+
+        const [ketQua] = await db.execute(
+            "DELETE FROM danh_muc WHERE ma_danh_muc = ?",
+            [ma_danh_muc]
+        );
+
+        if (ketQua.affectedRows === 0) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Không tìm thấy danh mục" });
+        }
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Xóa danh mục thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Không thể xóa danh mục đang chứa sản phẩm", loi: loi.message });
+    }
+};
+
+// 1.7 Thêm/Cập nhật Smart Checklist kiểm định cho sản phẩm
+const capNhatSmartChecklist = async (req, res) => {
+    try {
+        const { ma_san_pham, tieu_chi, dat_yeu_cau } = req.body;
+
+        await db.execute(
+            "INSERT INTO kiem_tra_chat_luong (ma_san_pham, tieu_chi, dat_yeu_cau) VALUES (?, ?, ?)",
+            [ma_san_pham, tieu_chi, dat_yeu_cau ? 1 : 0]
+        );
+
+        res.status(201).json({ thanh_cong: true, thong_bao: "Cập nhật tiêu chí Smart Checklist thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi cập nhật Smart Checklist", loi: loi.message });
+    }
+};
+
+// ============================================================
+// 2. CẤU HÌNH ĐƯỜNG DẪN (ROUTER API ADMIN)
+// ============================================================
+
+// Bảng điều khiển / Thống kê
+router.get('/thong-ke', layThongKeTongQuan);
+
+// Quản lý Sản phẩm
+router.get('/san-pham/danh-sach', layDanhSachSanPham);
+router.put('/san-pham/cap-nhat-trang-thai', capNhatTrangThaiSanPham);
+router.delete('/san-pham/xoa/:ma_san_pham', xoaSanPham);
+
+// Quản lý Danh mục
+router.post('/danh-muc/them', themDanhMuc);
+router.delete('/danh-muc/xoa/:ma_danh_muc', xoaDanhMuc);
+
+// Quản lý Smart Checklist Kiểm định
+router.post('/checklist/them', capNhatSmartChecklist);
+
+module.exports = router;
