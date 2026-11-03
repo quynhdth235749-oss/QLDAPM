@@ -1,0 +1,48 @@
+const db = require('../cau-hinh/ketNoiCSDL');
+
+// 1. Xác nhận giao dịch thành công
+exports.xacNhanGiaoDich = async (req, res) => {
+    try {
+        const { ma_giao_dich, ma_nguoi_dung } = req.body;
+
+        // Cập nhật trạng thái giao dịch
+        const [ketQua] = await db.execute(
+            "UPDATE giao_dich SET trang_thai = 'hoan_thanh' WHERE ma_giao_dich = ? AND (ma_nguoi_ban = ? OR ma_nguoi_mua = ?)",
+            [ma_giao_dich, ma_nguoi_dung, ma_nguoi_dung]
+        );
+
+        if (ketQua.affectedRows === 0) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Không tìm thấy giao dịch hoặc không có quyền" });
+        }
+
+        // Chuyển trạng thái sản phẩm sang 'da_ban'
+        await db.execute(
+            "UPDATE san_pham SET trang_thai = 'da_ban' WHERE ma_san_pham = (SELECT ma_san_pham FROM giao_dich WHERE ma_giao_dich = ?)",
+            [ma_giao_dich]
+        );
+
+        res.status(200).json({ thanh_cong: true, thong_bao: "Xác nhận giao dịch thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi xác nhận giao dịch", loi: loi.message });
+    }
+};
+
+// 2. Đánh giá người bán/người mua
+exports.taoDanhGia = async (req, res) => {
+    try {
+        const { ma_giao_dich, ma_nguoi_danh_gia, ma_nguoi_nhan_danh_gia, diem_danh_gia, nhan_xet } = req.body;
+
+        if (diem_danh_gia < 1 || diem_danh_gia > 5) {
+            return res.status(400).json({ thanh_cong: false, thong_bao: "Điểm đánh giá từ 1 đến 5 sao" });
+        }
+
+        await db.execute(
+            "INSERT INTO danh_gia (ma_giao_dich, ma_nguoi_danh_gia, ma_nguoi_nhan_danh_gia, diem_danh_gia, nhan_xet) VALUES (?, ?, ?, ?, ?)",
+            [ma_giao_dich, ma_nguoi_danh_gia, ma_nguoi_nhan_danh_gia, diem_danh_gia, nhan_xet]
+        );
+
+        res.status(201).json({ thanh_cong: true, thong_bao: "Gửi đánh giá thành công!" });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi lưu đánh giá", loi: loi.message });
+    }
+};
