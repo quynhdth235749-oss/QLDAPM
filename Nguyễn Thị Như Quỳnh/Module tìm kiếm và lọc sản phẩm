@@ -1,0 +1,53 @@
+const db = require('../cau-hinh/ketNoiCSDL');
+
+// API Tìm kiếm nâng cao và Lọc sản phẩm đồ cũ
+exports.timKiemSanPham = async (req, res) => {
+    try {
+        const { tu_khoa, ma_danh_muc, gia_toi_thieu, gia_toi_da, tinh_trang, sap_xep } = req.query;
+
+        let truyVan = "SELECT * FROM san_pham WHERE trang_thai = 'con_hang'";
+        let thamSo = [];
+
+        // Lọc theo từ khóa
+        if (tu_khoa) {
+            truyVan += " AND (ten_san_pham LIKE ? OR mo_ta LIKE ?)";
+            thamSo.push(`%${tu_khoa}%`, `%${tu_khoa}%`);
+        }
+
+        // Lọc theo danh mục
+        if (ma_danh_muc) {
+            truyVan += " AND ma_danh_muc = ?";
+            thamSo.push(ma_danh_muc);
+        }
+
+        // Lọc theo khoảng giá
+        if (gia_toi_thieu) {
+            truyVan += " AND gia >= ?";
+            thamSo.push(gia_toi_thieu);
+        }
+        if (gia_toi_da) {
+            truyVan += " AND gia <= ?";
+            thamSo.push(gia_toi_da);
+        }
+
+        // Lọc theo tình trạng đồ cũ
+        if (tinh_trang) {
+            truyVan += " AND tinh_trang = ?";
+            thamSo.push(tinh_trang);
+        }
+
+        // Sắp xếp kết quả
+        if (sap_xep === 'gia_tang') {
+            truyVan += " ORDER BY gia ASC";
+        } else if (sap_xep === 'gia_giam') {
+            truyVan += " ORDER BY gia DESC";
+        } else {
+            truyVan += " ORDER BY ngay_tao DESC"; // Mới nhất lên đầu
+        }
+
+        const [ketQua] = await db.execute(truyVan, thamSo);
+        res.status(200).json({ thanh_cong: true, so_luong: ketQua.length, du_lieu: ketQua });
+    } catch (loi) {
+        res.status(500).json({ thanh_cong: false, thong_bao: "Lỗi hệ thống khi tìm kiếm", loi: loi.message });
+    }
+};
