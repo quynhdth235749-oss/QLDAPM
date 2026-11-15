@@ -1,4 +1,5 @@
 <?php
+session_start();
 include 'ket-noi.php';
 
 $thong_bao = '';
@@ -30,8 +31,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param("sssss", $ho_ten, $email, $mat_khau, $so_dien_thoai, $dia_chi);
 
             if ($stmt->execute()) {
-                $thong_bao = 'Đăng ký tài khoản thành công! Bạn có thể đăng nhập ngay.';
-                $loai_thong_bao = 'success';
+                // Tự động đăng nhập bằng cách lưu Session ngay sau khi đăng ký
+                $_SESSION['user_id'] = $conn->insert_id;
+                $_SESSION['user'] = $ho_ten;
+                $_SESSION['vai_tro'] = 'user';
+
+                echo "<script>
+                        alert('Đăng ký tài khoản thành công!');
+                        window.location.href = 'index.php';
+                      </script>";
+                exit();
             } else {
                 $thong_bao = 'Có lỗi xảy ra khi tạo tài khoản!';
                 $loai_thong_bao = 'danger';

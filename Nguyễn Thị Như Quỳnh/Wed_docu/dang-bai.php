@@ -2,7 +2,6 @@
 session_start();
 include 'ket-noi.php';
 
-// Kiểm tra đăng nhập
 if (!isset($_SESSION['user_id'])) {
     header("Location: dang-nhap.php");
     exit();
@@ -12,69 +11,95 @@ $thong_bao = '';
 $loai_thong_bao = '';
 $danh_muc_result = $conn->query("SELECT * FROM danh_muc");
 
+// Hàm kiểm tra từ khóa bị cấm
+function kiemTraTuKhoaCam($conn, $noi_dung) {
+    $noi_dung_lower = mb_strtolower($noi_dung, 'UTF-8');
+    $res = $conn->query("SELECT tu_khoa FROM tu_khoa_cam");
+    $vi_pham = [];
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $kw = mb_strtolower(trim($row['tu_khoa']), 'UTF-8');
+            if ($kw !== '' && mb_strpos($noi_dung_lower, $kw) !== false) {
+                $vi_pham[] = $row['tu_khoa'];
+            }
+        }
+    }
+    return $vi_pham;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ten_san_pham = trim($_POST['ten_san_pham']);
     $ma_danh_muc = intval($_POST['ma_danh_muc']);
-    $hinh_thuc = $_POST['hinh_thuc']; // 'ban' hoặc 'trao_doi'
+    $hinh_thuc = $_POST['hinh_thuc'];
     $gia = ($hinh_thuc === 'trao_doi') ? 0 : floatval($_POST['gia']);
     $tinh_trang = trim($_POST['tinh_trang']);
     $mo_ta = trim($_POST['mo_ta']);
     $ma_nguoi_dung = $_SESSION['user_id'];
-    
-    $hinh_anh = '';
 
-    // XỬ LÝ UPLOAD FILE ẢNH MỚI TỪ MÁY TÍNH
-    if (isset($_FILES['hinh_anh_file']) && $_FILES['hinh_anh_file']['error'] === UPLOAD_ERR_OK) {
-        $file_tmp = $_FILES['hinh_anh_file']['tmp_name'];
-        $file_name = $_FILES['hinh_anh_file']['name'];
-        $ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-        $allow_ext = array('jpg', 'jpeg', 'png', 'webp', 'gif');
-
-        if (in_array($ext, $allow_ext)) {
-            $target_dir = "images/";
-            if (!is_dir($target_dir)) {
-                mkdir($target_dir, 0777, true);
-            }
-            // Tạo tên file ngẫu nhiên duy nhất
-            $new_file_name = time() . '_' . rand(1000, 9999) . '.' . $ext;
-            $target_file = $target_dir . $new_file_name;
-
-            if (move_uploaded_file($file_tmp, $target_file)) {
-                $hinh_anh = $target_file; // Đường dẫn ảnh mới vừa upload thành công
-            } else {
-                $thong_bao = 'Không thể lưu file ảnh vào thư mục images/! Kiểm tra lại quyền truy cập.';
-                $loai_thong_bao = 'danger';
-            }
-        } else {
-            $thong_bao = 'Chỉ chấp nhận các định dạng ảnh: .jpg, .jpeg, .png, .webp, .gif';
-            $loai_thong_bao = 'danger';
-        }
-    } else {
-        $thong_bao = 'Vui lòng chọn một file ảnh từ máy tính của bạn!';
+    // 1. Kiểm tra từ khóa bị cấm
+    $tu_vi_pham = kiemTraTuKhoaCam($conn, $ten_san_pham . ' ' . $mo_ta);
+    if (!empty($tu_vi_pham)) {
+        $danh_sach_tu = htmlspecialchars(implode(', ', $tu_vi_pham));
+        $thong_bao = "Bài đăng bị từ chối vì chứa từ khóa bị cấm: <strong>$danh_sach_tu</strong>!";
         $loai_thong_bao = 'danger';
     }
 
-    // Kiểm tra dữ liệu và lưu vào CSDL
+    $hinh_anh = '';
+
+    // 2. Xử lý upload ảnh (tên file ngắn gọn tránh bị cắt chuỗi trong DB)
     if (empty($thong_bao)) {
-        if (empty($ten_san_pham) || empty($ma_danh_muc) || ($hinh_thuc === 'ban' && $gia <= 0)) {
-            $thong_bao = 'Vui lòng nhập tên sản phẩm, chọn danh mục và nhập giá hợp lệ!';
+        if (isset($_FILES['hinh_anh_file']) && $_FILES['hinh_anh_file']['error'] === UPLOAD_ERR_OK) {
+            $file_tmp = $_FILES['hinh_anh_file']['tmp_name'];
+            $file_name = $_FILES['hinh_anh_file']['name'];
+            $ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
+            $allow_ext = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'jfif'];
+
+            if (in_array($ext, $allow_ext)) {
+                $target_dir = "images/";
+                if (!is_dir($target_dir)) {
+                    mkdir($target_dir, 0777, true);
+                }
+                // Tên file ngắn gọn ~17 ký tự (ví dụ: images/673a9f12.jpg)
+                $target_file = $target_dir . uniqid() . '.' . $ext;
+
+                if (move_uploaded_file($file_tmp, $target_file)) {
+                    $hinh_anh = $target_file;
+                } else {
+                    $thong_bao = 'Không thể lưu file ảnh vào thư mục images/!';
+                    $loai_thong_bao = 'danger';
+                }
+            } else {
+                $thong_bao = 'Chỉ chấp nhận file ảnh (.jpg, .jpeg, .png, .webp, .gif, .jfif)!';
+                $loai_thong_bao = 'danger';
+            }
+        } else {
+            $thong_bao = 'Vui lòng chọn ảnh sản phẩm (hoặc ảnh vượt quá 2MB)!';
+            $loai_thong_bao = 'danger';
+        }
+    }
+
+    // 3. Lưu vào CSDL và quay về trang chủ index.php
+    if (empty($thong_bao)) {
+        if (empty($ten_san_pham) || empty($ma_danh_muc) || empty($hinh_anh) || ($hinh_thuc === 'ban' && $gia <= 0)) {
+            $thong_bao = 'Vui lòng nhập đầy đủ thông tin và chọn ảnh hợp lệ!';
             $loai_thong_bao = 'danger';
         } else {
             $mo_ta_day_du = "[$hinh_thuc] " . $mo_ta;
             $stmt = $conn->prepare("INSERT INTO san_pham (ma_nguoi_dung, ma_danh_muc, ten_san_pham, mo_ta, hinh_anh, gia, tinh_trang, trang_thai) VALUES (?, ?, ?, ?, ?, ?, ?, 'con_hang')");
-            $stmt->bind_param("iissdds", $ma_nguoi_dung, $ma_danh_muc, $ten_san_pham, $mo_ta_day_du, $hinh_anh, $gia, $tinh_trang);
+           $stmt->bind_param("iisssds", $ma_nguoi_dung, $ma_danh_muc, $ten_san_pham, $mo_ta_day_du, $hinh_anh, $gia, $tinh_trang);
 
             if ($stmt->execute()) {
-                $thong_bao = 'Đăng tin sản phẩm thành công! Ảnh của bạn đã được lưu chuẩn xác.';
-                $loai_thong_bao = 'success';
+                echo "<script>alert('Đăng tin sản phẩm thành công!'); window.location.href='index.php';</script>";
+                exit();
             } else {
-                $thong_bao = 'Có lỗi xảy ra khi lưu vào cơ sở dữ liệu!';
+                $thong_bao = 'Lỗi lưu CSDL: ' . $conn->error;
                 $loai_thong_bao = 'danger';
             }
         }
     }
 }
 ?>
+<!-- Phần HTML bên dưới giữ nguyên như file dang-bai.php của bạn -->
 
 <!DOCTYPE html>
 <html lang="vi">
@@ -100,15 +125,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // Xem trước ảnh trực tiếp trước khi bấm Đăng
         function previewImage(event) {
-            var reader = new FileReader();
-            reader.onload = function() {
-                var output = document.getElementById('img_preview');
-                output.src = reader.result;
-                output.style.display = 'block';
-            };
-            reader.readAsDataURL(event.target.files[0]);
+            if (event.target.files && event.target.files[0]) {
+                var reader = new FileReader();
+                reader.onload = function() {
+                    var output = document.getElementById('img_preview');
+                    output.src = reader.result;
+                    output.style.display = 'block';
+                };
+                reader.readAsDataURL(event.target.files[0]);
+            }
         }
     </script>
 </head>
@@ -133,16 +159,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="card-body p-4">
             <?php if (!empty($thong_bao)): ?>
                 <div class="alert alert-<?php echo $loai_thong_bao; ?> alert-dismissible fade show" role="alert">
-                    <i class="bi bi-info-circle-fill me-2"></i><?php echo $thong_bao; ?>
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i><?php echo $thong_bao; ?>
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             <?php endif; ?>
 
-            <!-- QUAN TRỌNG: enctype="multipart/form-data" -->
             <form method="POST" action="dang-bai.php" enctype="multipart/form-data">
                 <div class="mb-3">
                     <label class="form-label fw-bold">Tên sản phẩm <span class="text-danger">*</span></label>
-                    <input type="text" name="ten_san_pham" class="form-control" placeholder="Nhập tên sản phẩm..." required>
+                    <input type="text" name="ten_san_pham" class="form-control" placeholder="Nhập tên sản phẩm..." required value="<?php echo isset($_POST['ten_san_pham']) ? htmlspecialchars($_POST['ten_san_pham']) : ''; ?>">
                 </div>
 
                 <div class="row g-3 mb-3">
@@ -180,13 +205,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </select>
                 </div>
 
-                <!-- Ô UPLOAD ẢNH NÂNG CẤP THAY THẾ HOÀN TOÀN -->
                 <div class="mb-3 p-3 bg-light rounded border">
                     <label class="form-label fw-bold text-success"><i class="bi bi-upload me-1"></i> Chọn ảnh sản phẩm từ máy tính <span class="text-danger">*</span></label>
                     <input type="file" name="hinh_anh_file" class="form-control" accept="image/*" onchange="previewImage(event)" required>
                     <small class="text-muted d-block mt-1">Chấp nhận định dạng: .jpg, .png, .webp, .jpeg</small>
                     
-                    <!-- Khung xem trước ảnh tải lên -->
                     <div class="mt-3 text-center">
                         <img id="img_preview" src="#" alt="Xem trước ảnh" class="img-thumbnail rounded shadow-sm" style="max-height: 180px; display: none; margin: 0 auto;">
                     </div>
@@ -194,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <div class="mb-4">
                     <label class="form-label fw-bold">Mô tả chi tiết sản phẩm</label>
-                    <textarea name="mo_ta" class="form-control" rows="4" placeholder="Nhập mô tả chi tiết sản phẩm..."></textarea>
+                    <textarea name="mo_ta" class="form-control" rows="4" placeholder="Nhập mô tả chi tiết sản phẩm..."><?php echo isset($_POST['mo_ta']) ? htmlspecialchars($_POST['mo_ta']) : ''; ?></textarea>
                 </div>
 
                 <div class="d-grid gap-2">

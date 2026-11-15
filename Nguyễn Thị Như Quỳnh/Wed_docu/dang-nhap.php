@@ -11,7 +11,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($email) || empty($mat_khau)) {
         $thong_bao = 'Vui lòng nhập đầy đủ Email và Mật khẩu!';
     } else {
-        // Kiểm tra thông tin tài khoản
         $stmt = $conn->prepare("SELECT * FROM nguoi_dung WHERE email = ? AND mat_khau = ?");
         $stmt->bind_param("ss", $email, $mat_khau);
         $stmt->execute();
@@ -19,25 +18,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($result->num_rows > 0) {
             $user = $result->fetch_assoc();
-            
-            // Lưu thông tin vào Session
-            $_SESSION['user_id'] = $user['ma_nguoi_dung'];
-            $_SESSION['user'] = $user['ho_ten'];
-            $_SESSION['vai_tro'] = $user['vai_tro'];
 
-            // Nếu là Admin thì chuyển hướng tới trang Admin, ngược lại về Trang chủ
-            if ($user['vai_tro'] === 'admin') {
-                header("Location: admin.php");
+            // Kiểm tra tài khoản có bị Admin khóa không
+            if (isset($user['trang_thai']) && $user['trang_thai'] === 'bi_khoa') {
+                $thong_bao = 'Tài khoản của bạn đã bị khóa do vi phạm quy định của hệ thống!';
             } else {
-                header("Location: index.php");
+                $_SESSION['user_id'] = $user['ma_nguoi_dung'];
+                $_SESSION['user'] = $user['ho_ten'];
+                $_SESSION['vai_tro'] = $user['vai_tro'];
+
+                if ($user['vai_tro'] === 'admin') {
+                    header("Location: admin.php");
+                } else {
+                    header("Location: index.php");
+                }
+                exit();
             }
-            exit();
         } else {
             $thong_bao = 'Email hoặc mật khẩu không chính xác!';
         }
     }
 }
 ?>
+<!-- Phần HTML bên dưới của dang-nhap.php giữ nguyên như cũ -->
 
 <!DOCTYPE html>
 <html lang="vi">

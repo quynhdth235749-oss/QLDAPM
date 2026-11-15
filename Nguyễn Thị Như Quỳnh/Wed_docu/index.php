@@ -6,14 +6,15 @@ include 'ket-noi.php';
 $tu_khoa = isset($_GET['tu_khoa']) ? trim($_GET['tu_khoa']) : '';
 $ma_danh_muc = isset($_GET['ma_danh_muc']) ? intval($_GET['ma_danh_muc']) : 0;
 
-// Chỉ lấy các sản phẩm có trạng thái 'con_hang'
+// Chỉ lấy các sản phẩm có trạng thái 'con_hang' (tự động ẩn bài 'cho_duyet', 'an', 'da_ban')
 $sql = "SELECT sp.*, dm.ten_danh_muc, nd.dia_chi FROM san_pham sp 
         JOIN danh_muc dm ON sp.ma_danh_muc = dm.ma_danh_muc 
         JOIN nguoi_dung nd ON sp.ma_nguoi_dung = nd.ma_nguoi_dung
         WHERE sp.trang_thai = 'con_hang'";
 
 if (!empty($tu_khoa)) {
-    $sql .= " AND (sp.ten_san_pham LIKE '%$tu_khoa%' OR sp.mo_ta LIKE '%$tu_khoa%')";
+    $tu_khoa_safe = $conn->real_escape_string($tu_khoa);
+    $sql .= " AND (sp.ten_san_pham LIKE '%$tu_khoa_safe%' OR sp.mo_ta LIKE '%$tu_khoa_safe%')";
 }
 if ($ma_danh_muc > 0) {
     $sql .= " AND sp.ma_danh_muc = '$ma_danh_muc'";
@@ -75,6 +76,15 @@ $danh_muc_result = $conn->query("SELECT * FROM danh_muc");
                             <i class="bi bi-person-circle me-1"></i> <?php echo htmlspecialchars($_SESSION['user']); ?>
                         </a>
                     </li>
+                    
+                    <?php if (isset($_SESSION['vai_tro']) && $_SESSION['vai_tro'] === 'admin'): ?>
+                        <li class="nav-item me-2">
+                            <a class="btn btn-dark btn-sm text-warning fw-bold" href="admin.php">
+                                <i class="bi bi-gear-fill me-1"></i> Trang Quản Trị
+                            </a>
+                        </li>
+                    <?php endif; ?>
+
                     <li class="nav-item me-2">
                         <a class="btn btn-outline-light btn-sm fw-bold" href="quan-ly-bai-dang.php">
                             <i class="bi bi-list-task me-1"></i> Bài đăng & Giao dịch
@@ -187,9 +197,25 @@ $danh_muc_result = $conn->query("SELECT * FROM danh_muc");
                                 <i class="bi bi-geo-alt-fill text-danger me-1"></i> Nơi đăng: <strong><?php echo !empty($row['dia_chi']) ? htmlspecialchars($row['dia_chi']) : 'Long Xuyên, An Giang'; ?></strong>
                             </p>
 
-                            <a href="chi-tiet.php?id=<?php echo $row['ma_san_pham']; ?>" class="btn btn-outline-success btn-sm mt-auto fw-bold py-2">
-                                Xem chi tiết sản phẩm <i class="bi bi-arrow-right-short ms-1"></i>
-                            </a>
+                            <!-- Khối Nút Xem Chi Tiết & Nút Báo Cáo Bài Đăng -->
+                            <div class="mt-auto d-flex gap-2">
+                                <a href="chi-tiet.php?id=<?php echo $row['ma_san_pham']; ?>" class="btn btn-outline-success btn-sm flex-grow-1 fw-bold py-2">
+                                    Xem chi tiết <i class="bi bi-arrow-right-short ms-1"></i>
+                                </a>
+
+                                <?php if (isset($_SESSION['user_id']) && $_SESSION['user_id'] != $row['ma_nguoi_dung']): ?>
+                                    <button type="button" 
+                                            class="btn btn-outline-danger btn-sm py-2 px-2" 
+                                            title="Báo cáo bài đăng vi phạm"
+                                            onclick="moModalBaoCao(<?php echo $row['ma_san_pham']; ?>, '<?php echo htmlspecialchars(addslashes($row['ten_san_pham'])); ?>')">
+                                        <i class="bi bi-flag-fill"></i>
+                                    </button>
+                                <?php elseif (!isset($_SESSION['user_id'])): ?>
+                                    <a href="dang-nhap.php" class="btn btn-outline-danger btn-sm py-2 px-2" title="Đăng nhập để báo cáo vi phạm">
+                                        <i class="bi bi-flag-fill"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -202,6 +228,47 @@ $danh_muc_result = $conn->query("SELECT * FROM danh_muc");
                 </div>
             </div>
         <?php endif; ?>
+    </div>
+</div>
+
+<!-- Modal Báo Cáo Bài Đăng Vi Phạm -->
+<div class="modal fade" id="modalBaoCao" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form method="POST" action="bao-cao.php">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-flag-fill me-2"></i>Báo Cáo Bài Đăng Vi Phạm</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="ma_san_pham" id="bc_ma_san_pham">
+                    <input type="hidden" name="redirect" value="index.php">
+                    
+                    <p class="mb-3">Sản phẩm bị báo cáo: <strong id="bc_ten_san_pham" class="text-danger"></strong></p>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Lý do báo cáo <span class="text-danger">*</span></label>
+                        <select name="ly_do" class="form-select" required>
+                            <option value="">-- Chọn lý do vi phạm --</option>
+                            <option value="Hàng cấm / Vi phạm pháp luật">Hàng cấm / Vi phạm pháp luật</option>
+                            <option value="Lừa đảo / Thông tin sai sự thật">Lừa đảo / Thông tin sai sự thật</option>
+                            <option value="Hàng giả, hàng nhái kém chất lượng">Hàng giả, hàng nhái kém chất lượng</option>
+                            <option value="Nội dung phản cảm / Từ ngữ thô tục">Nội dung phản cảm / Từ ngữ thô tục</option>
+                            <option value="Spam / Đăng trùng lặp nhiều lần">Spam / Đăng trùng lặp nhiều lần</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label fw-bold">Mô tả chi tiết thêm (nếu có)</label>
+                        <textarea name="mo_ta_them" class="form-control" rows="3" placeholder="Cung cấp thêm thông tin để Admin dễ kiểm tra..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" class="btn btn-danger fw-bold">Gửi Báo Cáo</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -266,5 +333,13 @@ $danh_muc_result = $conn->query("SELECT * FROM danh_muc");
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function moModalBaoCao(maSP, tenSP) {
+    document.getElementById('bc_ma_san_pham').value = maSP;
+    document.getElementById('bc_ten_san_pham').innerText = tenSP;
+    var myModal = new bootstrap.Modal(document.getElementById('modalBaoCao'));
+    myModal.show();
+}
+</script>
 </body>
 </html>
